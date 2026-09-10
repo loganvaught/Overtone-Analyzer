@@ -2,7 +2,7 @@
 Harmonic analysis tools to help musicians visualize how fundamental frequencies and their harmonic overtones interact with each other.
 Currently in progress, debug comments and print statements present.
 
-# To Be Added
+## To Be Added
 - UART to PC communication allowing data visualization through a Python program
 - Custom PCB and 3D printed enclosure using large OLED screen for completely embedded device
 - Configurable variables through physical components like switches and sliders
