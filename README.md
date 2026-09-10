@@ -48,8 +48,7 @@ Note: Block diagram to be added.
 - F411: Built in FPU (floating point unit) accelerates FFT calculations. RAM size allows for FFT bin resolutions that are reasonable for musicians
 - MAX9814: Automatically adjusts gain, consistently providing a measurable ADC output for quieter instruments and larger setups. However, removes ability for direct volume measurement of fundamental frequencies.
 ## How to Make
-- Clone the repo, and open the Klaus container folder (inside this repo) in STM32CubeIDE
+- Clone the repo, and open the Overtone Analyzer container folder (inside this repo) in STM32CubeIDE
 - Use an ST-Link (or other method) to flash the STM32F411CEU6
 - View pin mapping by opening .ioc file in STM32CubeMX
-- View block diagram below for help putting device together. (Note: diagram does not show rotary encoder or mode-switching button)
-- Supply 5v to the STM32 5v pin, and the DRV2605L haptic board. Supply 3.3v to the NRF24L01+ board; or, use an NRF24L01 adapter board, which takes 5V. 
+- View block diagram for help putting device together
