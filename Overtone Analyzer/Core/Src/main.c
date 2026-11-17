@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
 #include <stdio.h>
+#include "ssd1306.h"
 
 /* USER CODE END Includes */
 
@@ -45,7 +46,6 @@
 #define FUNDAMENTAL_VOLUME_THRESHOLD_RATIO 0.22f // To be considered a fundamental frequency, it must be at least X * loudest magnitude
 #define HARMONIC_VOLUME_THRESHOLD_RATIO 0.03f // To be considered a harmonic, it must be at least X * fundamental magnitude
 #define EXPERIMENTAL_FLAG_CHECK_FOR_QUIET_FUNDAMENTAL 1 // If set, harmonic check will look for frequencies below the fundamental candidate to identify a different, quiet fundamental that was missed. Useful for instruments with brighter profiles where fundamentals are registered incorrectly
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -57,7 +57,10 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
 
@@ -68,12 +71,33 @@ const osThreadAttr_t processADC_attributes = {
   .stack_size = 2500 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for StatsTask */
+osThreadId_t StatsTaskHandle;
+const osThreadAttr_t StatsTask_attributes = {
+  .name = "StatsTask",
+  .stack_size = 250 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for VisualizeTask */
+osThreadId_t VisualizeTaskHandle;
+const osThreadAttr_t VisualizeTask_attributes = {
+  .name = "VisualizeTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow3,
+};
+/* Definitions for printMutex */
+osMutexId_t printMutexHandle;
+const osMutexAttr_t printMutex_attributes = {
+  .name = "printMutex"
+};
 /* Definitions for do_fft */
 osSemaphoreId_t do_fftHandle;
 const osSemaphoreAttr_t do_fft_attributes = {
   .name = "do_fft"
 };
 /* USER CODE BEGIN PV */
+
+volatile unsigned long ulHighFrequencyTimerTicks;
 
 /* USER CODE END PV */
 
@@ -84,7 +108,11 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
+static void MX_I2C1_Init(void);
 void StartProcessADC(void *argument);
+void StartStatsTask(void *argument);
+void StartVisualizeTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -105,6 +133,11 @@ int _write(int fd, char* ptr, int len) {
 	}
 	return -1;
 }
+
+// Oled handle for displaying info from display task
+ssd1306_handle_t oled_handle;
+// OLED BUFFER TEST!
+
 
 // ADC with DMA. Giving semaphore for FFT processing
 uint16_t fft_in_index = 0;
@@ -192,6 +225,7 @@ float get_relative_volume_db(float fundamental_amplitude, float reference_amplit
 }
 
 void Process_Half_Buffer() {
+    osMutexWait(printMutexHandle, osWaitForever);
 	// Convert the ADC samples to float
 	for (int i = 0; i < BUFFER_SIZE / 2; i ++) {
 		uint16_t actual_index = fft_in_index + i;
@@ -282,7 +316,7 @@ void Process_Half_Buffer() {
 			// j is the new index this should be at
 		}
 
-		printf("----------------------------------------------------\r\n");
+		//printf("----------------------------------------------------\r\n");
 
 		// Go through each frequency, group by fundamentals and harmonics and noise
 		uint8_t harmonics[FREQUENCIES_TO_GATHER] = {0}; // Grouped by fundamental frequency. 1 = family of frequency 1, 2 = family of frequency 2
@@ -398,16 +432,27 @@ void Process_Half_Buffer() {
 							loudest_fundamental_volume = fundamental_volume;
 						}
 						fundamental_found = 1;
-						printf("%dhz (%ddb): ", (int) gathered_frequencies[j], (int) get_relative_volume_db(fundamental_volume,loudest_fundamental_volume));
+						//printf("%dhz (%ddb): ", (int) gathered_frequencies[j], (int) get_relative_volume_db(fundamental_volume,loudest_fundamental_volume));
 					}
 					else {
-						printf("%dhz (%ddb), ", (int) gathered_frequencies[j], (int) get_relative_volume_db(get_amplitude(fund_bin[j]), fundamental_volume));
+						//printf("%dhz (%ddb), ", (int) gathered_frequencies[j], (int) get_relative_volume_db(get_amplitude(fund_bin[j]), fundamental_volume));
 					}
 				}
 			}
-			printf("\r\n");
+			//printf("\r\n");
 		}
 	}
+    osMutexRelease(printMutexHandle);
+}
+
+// Timer 4 freeRTOS runtime statistics
+void configureTimerForRunTimeStats(void) {
+	ulHighFrequencyTimerTicks = 0;
+	HAL_TIM_Base_Start_IT(&htim4);
+}
+
+unsigned long getRunTimeCounterValue(void) {
+	return ulHighFrequencyTimerTicks;
 }
 
 /* USER CODE END 0 */
@@ -445,6 +490,8 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   printf("\r\nWorking!\r\n");
@@ -467,6 +514,9 @@ int main(void)
 
   /* Init scheduler */
   osKernelInitialize();
+  /* Create the mutex(es) */
+  /* creation of printMutex */
+  printMutexHandle = osMutexNew(&printMutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -491,6 +541,12 @@ int main(void)
   /* Create the thread(s) */
   /* creation of processADC */
   processADCHandle = osThreadNew(StartProcessADC, NULL, &processADC_attributes);
+
+  /* creation of StatsTask */
+  StatsTaskHandle = osThreadNew(StartStatsTask, NULL, &StatsTask_attributes);
+
+  /* creation of VisualizeTask */
+  VisualizeTaskHandle = osThreadNew(StartVisualizeTask, NULL, &VisualizeTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -614,6 +670,40 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -655,6 +745,51 @@ static void MX_TIM3_Init(void)
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 1000 - 1;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
@@ -721,6 +856,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -752,6 +888,95 @@ void StartProcessADC(void *argument)
 
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartStatsTask */
+/**
+* @brief Function implementing the StatsTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartStatsTask */
+void StartStatsTask(void *argument)
+{
+  /* USER CODE BEGIN StartStatsTask */
+	    TaskStatus_t *pxTaskStatusArray;
+	    volatile UBaseType_t uxArraySize, x;
+	    unsigned long ulTotalRunTime;
+	    float runtime_percentage;
+
+	    /* Infinite loop */
+	    for (;;) {
+			// XV: Every 10 seconffds
+	        osDelay(10000);
+
+			// XV: Get number of tasks
+	        uxArraySize = uxTaskGetNumberOfTasks();
+		    // XV: Allocate memory for statistics
+	        pxTaskStatusArray = pvPortMalloc(uxArraySize * sizeof(TaskStatus_t)); // a little bit scary!
+
+			// XV: Wait for printing mutex (only one task can print at a time)
+	        osMutexWait(printMutexHandle, osWaitForever);
+
+	        if (pxTaskStatusArray != NULL) {
+
+	            uxArraySize = uxTaskGetSystemState(pxTaskStatusArray, uxArraySize,
+	                    &ulTotalRunTime);
+
+	            printf("Task count = %lu\r\n", uxArraySize);
+	            printf("No       Name          P  S   Usage     Count     HW\r\n");
+
+	            for (x = 0; x < uxArraySize; x++) {
+
+	                runtime_percentage = (float) (100
+	                        * (float) pxTaskStatusArray[x].ulRunTimeCounter
+	                        / (float) ulTotalRunTime);
+					// XV: Print the statistics!
+	                printf("Task %2lu: %-12s %2lu %2d %8.4f (%8lu) %4i\r\n",
+	                        x,
+	                        pxTaskStatusArray[x].pcTaskName,
+	                        pxTaskStatusArray[x].uxCurrentPriority,
+	                        pxTaskStatusArray[x].eCurrentState,
+	                        runtime_percentage,
+	                        pxTaskStatusArray[x].ulRunTimeCounter,
+	                        pxTaskStatusArray[x].usStackHighWaterMark);
+
+	            }
+
+	            vPortFree(pxTaskStatusArray);
+
+	        } else {
+	            printf("Unable to allocate stack space\r\n");
+	        }
+
+	        osMutexRelease(printMutexHandle);
+
+	    }
+
+  /* USER CODE END StartStatsTask */
+}
+
+/* USER CODE BEGIN Header_StartVisualizeTask */
+/**
+* @brief Function implementing the VisualizeTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartVisualizeTask */
+void StartVisualizeTask(void *argument)
+{
+  /* USER CODE BEGIN StartVisualizeTask */
+
+	ssd1306_result_t status = SSD1306_OK;
+	status = ssd1306_init(&oled_handle, &hi2c1, OLED_SDA_GPIO_Port, OLED_SDA_Pin);
+	status = ssd1306_ram_based_mode(&oled_handle);
+  /* Infinite loop */
+  for(;;)
+  {
+	  osDelay(100);
+	  status = ssd1306_generate_buffer(&oled_handle, fft_in, 4096/2 - 500, 500, SSD1306_BucketsAverage, 2000);
+  }
+  /* USER CODE END StartVisualizeTask */
 }
 
 /**
