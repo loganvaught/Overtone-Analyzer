@@ -1,15 +1,16 @@
 # Overtone-Analyzer
 Harmonic analysis tools to help musicians visualize how fundamental frequencies and their harmonic overtones interact with each other.
-Currently in progress, debug comments and print statements present.
+
+Status: NOT COMPLETED. Pausing project to return to it in the future. The ADC capture and FFT processing are functional, outputting processed data over UART. 
+Note: There is a function in ssd1306.c that is not finished, "ssd1306_generate_frequencies."
 
 ## To Be Added
 - UART to PC communication allowing data visualization through a Python program
-- Custom PCB and 3D printed enclosure using large OLED screen for completely embedded device
-- Configurable variables through physical components like switches and sliders
+- OLED text output, with potential to convert device into a completely embedded (not reliant on UART) device.
 
 ## Currently Implemented
 - ADC polling with DMA and circular buffers
-- CMSIS RTOS V2 implementation with one task for processing data
+- CMSIS RTOS V2 implementation with a data processing task, a barebones visualization task, and an imported FreeRTOS statistics task.
 - Identification of multiple musical fundamental frequencies and their overtone frequencies, and relative volumes
 - UART serial debugging outputs harmonic data to terminal
 
@@ -26,10 +27,13 @@ Overtone Analyzer/ (Project container folder)
 └── Core/
       └── Src/                  # main.c
 └── Overtone Analyzer.ioc       # Pin mapping in STM32CubeMX
+└── Drivers/
+      └── Custom/               # Location of ssd1306 driver files
 ```
 ## Parts
 - STM32F411CEU6 Blackpill Board
 - MAX9814 Audio Amplifier Microphone
+- SSD1306 OLED Screen
 
 # Design
 Note: Block diagram to be added.
