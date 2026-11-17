@@ -154,7 +154,7 @@ ssd1306_result_t ssd1306_generate_buffer(ssd1306_handle_t *device, float *buffer
 	return status;
 }
 
-ssd1306_result_t ssd1306_generate_frequencies(ssd1306_handle_t *device, uint16_t *frequency_buffer, uint8_t number_frequencies, uint16_t amplitude, ssd1306_frequency_plot_mode_t mode) {
+/*ssd1306_result_t ssd1306_generate_frequencies(ssd1306_handle_t *device, uint16_t *frequency_buffer, uint8_t number_frequencies, uint16_t amplitude, ssd1306_frequency_plot_mode_t mode) {
 	if (device == NULL) return SSD1306_Error;
 
 	ssd1306_result_t status = SSD1306_OK;
@@ -174,7 +174,7 @@ ssd1306_result_t ssd1306_generate_frequencies(ssd1306_handle_t *device, uint16_t
 	}
 
 	return status;
-}
+}*/
 
 ssd1306_result_t ssd1306_init(ssd1306_handle_t *device, I2C_HandleTypeDef *i2c, GPIO_TypeDef *SDA_Port, uint16_t SDA_Pin) {
 	ssd1306_result_t status = SSD1306_OK;

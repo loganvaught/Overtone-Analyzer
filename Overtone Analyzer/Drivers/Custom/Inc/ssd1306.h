@@ -104,6 +104,6 @@ ssd1306_result_t ssd1306_clear_screen(ssd1306_handle_t *device);
 
 // Specific for waveform/buffer plotting
 ssd1306_result_t ssd1306_generate_buffer(ssd1306_handle_t *device, float *buffer, uint16_t start_element, uint16_t number_elements, ssd1306_buffer_plot_mode_t mode, uint16_t scale);
-ssd1306_result_t ssd1306_generate_frequency(ssd1306_handle_t *device, uint16_t *frequency_buffer, uint8_t number_frequencies, uint16_t amplitude, ssd1306_frequency_plot_mode_t mode);
+//ssd1306_result_t ssd1306_generate_frequency(ssd1306_handle_t *device, uint16_t *frequency_buffer, uint8_t number_frequencies, uint16_t amplitude, ssd1306_frequency_plot_mode_t mode);
 
 #endif /* CUSTOM_INC_SSD1306_H_ */
